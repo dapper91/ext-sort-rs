@@ -8,6 +8,8 @@
 
 pub mod chunk;
 pub mod merger;
+pub mod sort;
 
 pub use chunk::{ExternalChunk, RmpExternalChunk};
 pub use merger::BinaryHeapMerger;
+pub use sort::{ExternalSorter, ExternalSorterBuilder, SortError};
