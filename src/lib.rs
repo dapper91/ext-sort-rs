@@ -6,6 +6,8 @@
 //! it merges the sorted chunks together.
 //! For more information see https://en.wikipedia.org/wiki/External_sorting.
 
+pub mod chunk;
 pub mod merger;
 
+pub use chunk::{ExternalChunk, RmpExternalChunk};
 pub use merger::BinaryHeapMerger;
