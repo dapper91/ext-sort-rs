@@ -6,10 +6,12 @@
 //! it merges the sorted chunks together.
 //! For more information see https://en.wikipedia.org/wiki/External_sorting.
 
+pub mod buffer;
 pub mod chunk;
 pub mod merger;
 pub mod sort;
 
+pub use buffer::{ChunkBuffer, ChunkBufferBuilder, LimitedBuffer, LimitedBufferBuilder};
 pub use chunk::{ExternalChunk, RmpExternalChunk};
 pub use merger::BinaryHeapMerger;
 pub use sort::{ExternalSorter, ExternalSorterBuilder, SortError};
