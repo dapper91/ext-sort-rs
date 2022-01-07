@@ -8,10 +8,9 @@ use std::io;
 use std::marker::PhantomData;
 use std::path::Path;
 
-use rayon::prelude::*;
-
 use crate::chunk::{ExternalChunk, RmpExternalChunk};
 use crate::merger::BinaryHeapMerger;
+use crate::{ChunkBuffer, ChunkBufferBuilder, LimitedBufferBuilder};
 
 /// Sorting error.
 #[derive(Debug)]
@@ -50,103 +49,118 @@ impl Display for SortError {
 
 /// External sorter builder.
 #[derive(Clone)]
-pub struct ExternalSorterBuilder {
+pub struct ExternalSorterBuilder<T: Send, B = LimitedBufferBuilder>
+where
+    B: ChunkBufferBuilder<T>,
+{
     /// Number of threads to be used to sort data in parallel.
     threads_number: Option<usize>,
-    /// Chunk size.
-    chunk_size: usize,
     /// Directory to be used to store temporary data.
     tmp_dir: Option<Box<Path>>,
     /// Chunk file read/write buffer size.
     rw_buf_size: Option<usize>,
+    /// Chunk buffer builder.
+    buffer_builder: B,
+    /// Item type.
+    item_type: PhantomData<T>,
 }
 
-impl ExternalSorterBuilder {
+impl<T, B> ExternalSorterBuilder<T, B>
+where
+    T: serde::ser::Serialize + serde::de::DeserializeOwned + Ord + Send,
+    B: ChunkBufferBuilder<T>,
+{
     /// Creates an instance of builder with default parameters.
     pub fn new() -> Self {
         ExternalSorterBuilder::default()
     }
 
     /// Builds external sorter using provided configuration.
-    pub fn build<T, C>(self) -> Result<ExternalSorter<T, C>, SortError>
+    pub fn build<C>(self) -> Result<ExternalSorter<T, B, C>, SortError>
     where
-        T: serde::ser::Serialize + serde::de::DeserializeOwned + Ord + Send,
         C: ExternalChunk<T>,
     {
         ExternalSorter::new(
-            self.chunk_size,
             self.threads_number,
             self.tmp_dir.as_deref(),
+            self.buffer_builder,
             self.rw_buf_size,
         )
     }
 
     /// Sets number of threads to be used to sort data in parallel.
-    pub fn with_threads_number(mut self, threads_number: usize) -> ExternalSorterBuilder {
+    pub fn with_threads_number(mut self, threads_number: usize) -> ExternalSorterBuilder<T, B> {
         self.threads_number = Some(threads_number);
         return self;
     }
 
     /// Sets directory to be used to store temporary data.
-    pub fn with_tmp_dir(mut self, path: &Path) -> ExternalSorterBuilder {
+    pub fn with_tmp_dir(mut self, path: &Path) -> ExternalSorterBuilder<T, B> {
         self.tmp_dir = Some(path.into());
         return self;
     }
 
-    /// Sets chunk size.
-    pub fn with_chunk_size(mut self, chunk_size: usize) -> ExternalSorterBuilder {
-        self.chunk_size = chunk_size;
+    /// Sets buffer builder.
+    pub fn with_buffer(mut self, buffer_builder: B) -> ExternalSorterBuilder<T, B> {
+        self.buffer_builder = buffer_builder;
         return self;
     }
 
     /// Sets chunk read/write buffer size.
-    pub fn with_rw_buf_size(mut self, buf_size: usize) -> ExternalSorterBuilder {
+    pub fn with_rw_buf_size(mut self, buf_size: usize) -> ExternalSorterBuilder<T, B> {
         self.rw_buf_size = Some(buf_size);
         return self;
     }
 }
 
-impl Default for ExternalSorterBuilder {
+impl<T, B> Default for ExternalSorterBuilder<T, B>
+where
+    T: Send,
+    B: ChunkBufferBuilder<T>,
+{
     fn default() -> Self {
         ExternalSorterBuilder {
             threads_number: None,
             tmp_dir: None,
             rw_buf_size: None,
-            chunk_size: 1024 * 1024,
+            buffer_builder: B::default(),
+            item_type: PhantomData,
         }
     }
 }
 
 /// External sorter.
-pub struct ExternalSorter<T, C = RmpExternalChunk<T>>
+pub struct ExternalSorter<T, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned,
+    T: serde::ser::Serialize + serde::de::DeserializeOwned + Send,
+    B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
 {
     thread_pool: rayon::ThreadPool,
-    chunk_size: usize,
     tmp_dir: tempfile::TempDir,
+    buffer_builder: B,
     rw_buf_size: Option<usize>,
 
     external_chunk_type: PhantomData<C>,
     item_type: PhantomData<T>,
 }
 
-impl<T, C> ExternalSorter<T, C>
+impl<T, B, C> ExternalSorter<T, B, C>
 where
     T: serde::ser::Serialize + serde::de::DeserializeOwned + Ord + Send,
+    B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
 {
     /// Creates a new external sorter instance.
     pub fn new(
-        chunk_size: usize,
         threads_number: Option<usize>,
         tmp_path: Option<&Path>,
+        buffer_builder: B,
         rw_buf_size: Option<usize>,
     ) -> Result<Self, SortError> {
         return Ok(ExternalSorter {
-            chunk_size,
             rw_buf_size,
+            buffer_builder,
             thread_pool: Self::init_thread_pool(threads_number)?,
             tmp_dir: Self::init_tmp_directory(tmp_path)?,
             external_chunk_type: PhantomData,
@@ -189,7 +203,7 @@ where
         I: IntoIterator<Item = Result<T, E>>,
         E: Error + 'static,
     {
-        let mut chunk_buf = Vec::with_capacity(self.chunk_size);
+        let mut chunk_buf = self.buffer_builder.build();
         let mut external_chunks = Vec::new();
 
         for item in input.into_iter() {
@@ -198,9 +212,9 @@ where
                 Err(err) => return Err(SortError::InputError(Box::new(err))),
             }
 
-            if chunk_buf.len() == self.chunk_size {
+            if chunk_buf.is_full() {
                 external_chunks.push(self.create_chunk(chunk_buf)?);
-                chunk_buf = Vec::with_capacity(self.chunk_size);
+                chunk_buf = self.buffer_builder.build();
             }
         }
 
@@ -214,7 +228,7 @@ where
     }
 
     /// Sorts data and dumps it to an external chunk.
-    fn create_chunk(&self, mut chunk: Vec<T>) -> Result<C, SortError> {
+    fn create_chunk(&self, mut chunk: impl ChunkBuffer<T>) -> Result<C, SortError> {
         log::debug!("sorting chunk data ...");
         self.thread_pool.install(|| {
             chunk.par_sort();
@@ -235,7 +249,7 @@ mod test {
 
     use rand::seq::SliceRandom;
 
-    use super::{ExternalSorter, ExternalSorterBuilder};
+    use super::{ExternalSorter, ExternalSorterBuilder, LimitedBufferBuilder};
 
     #[test]
     fn test_external_sorter() {
@@ -245,7 +259,7 @@ mod test {
         input.shuffle(&mut rand::thread_rng());
 
         let sorter: ExternalSorter<i32> = ExternalSorterBuilder::new()
-            .with_chunk_size(8)
+            .with_buffer(LimitedBufferBuilder::new(8, true))
             .with_threads_number(2)
             .with_tmp_dir(Path::new("./"))
             .build()

@@ -135,11 +135,11 @@ pub mod mem {
     use super::{ChunkBuffer, ChunkBufferBuilder};
 
     pub struct MemoryLimitedBufferBuilder {
-        buffer_limit: usize,
+        buffer_limit: u64,
     }
 
     impl MemoryLimitedBufferBuilder {
-        pub fn new(buffer_limit: usize) -> Self {
+        pub fn new(buffer_limit: u64) -> Self {
             MemoryLimitedBufferBuilder { buffer_limit }
         }
     }
@@ -157,21 +157,19 @@ pub mod mem {
 
     impl Default for MemoryLimitedBufferBuilder {
         fn default() -> Self {
-            MemoryLimitedBufferBuilder {
-                buffer_limit: usize::MAX,
-            }
+            MemoryLimitedBufferBuilder { buffer_limit: u64::MAX }
         }
     }
 
     /// Buffer limited by consumed memory.
     pub struct MemoryLimitedBuffer<T> {
-        limit: usize,
-        current_size: usize,
+        limit: u64,
+        current_size: u64,
         inner: Vec<T>,
     }
 
     impl<T> MemoryLimitedBuffer<T> {
-        pub fn new(limit: usize) -> Self {
+        pub fn new(limit: u64) -> Self {
             MemoryLimitedBuffer {
                 limit,
                 current_size: 0,
@@ -179,7 +177,7 @@ pub mod mem {
             }
         }
 
-        pub fn mem_size(&self) -> usize {
+        pub fn mem_size(&self) -> u64 {
             self.current_size
         }
     }
@@ -189,7 +187,7 @@ pub mod mem {
         T: deepsize::DeepSizeOf,
     {
         fn push(&mut self, item: T) {
-            self.current_size += item.deep_size_of();
+            self.current_size += item.deep_size_of() as u64;
             self.inner.push(item);
         }
 
