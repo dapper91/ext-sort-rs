@@ -2,6 +2,16 @@
 name = "ext-sort"
 version = "0.1.0"
 edition = "2021"
+license = "Unlicense"
+description = "rust external sort algorithm implementation"
+readme = "README.md"
+
+homepage = "https://github.com/dapper91/ext-sort-rs"
+documentation = "https://docs.rs/ext-sort/"
+repository = "https://github.com/dapper91/ext-sort-rs"
+
+categories = ["algorithms"]
+keywords = ["algorithms", "sort", "sorting", "external-sort", "external"]
 
 [dependencies]
 bytesize = { version = "^1.1", optional = true }
