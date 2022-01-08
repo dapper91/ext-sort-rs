@@ -1,0 +1,21 @@
+name: test
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: Run unit-tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      run: rustup update stable
+    - name: Run tests
+      run: cargo test --all-features

@@ -1,0 +1,35 @@
+[package]
+name = "ext-sort"
+version = "0.1.0"
+edition = "2021"
+license = "Unlicense"
+description = "rust external sort algorithm implementation"
+readme = "README.md"
+
+homepage = "https://github.com/dapper91/ext-sort-rs"
+documentation = "https://docs.rs/ext-sort/"
+repository = "https://github.com/dapper91/ext-sort-rs"
+
+categories = ["algorithms"]
+keywords = ["algorithms", "sort", "sorting", "external-sort", "external"]
+
+[dependencies]
+bytesize = { version = "^1.1", optional = true }
+deepsize = { version = "^0.2", optional = true }
+env_logger = { version = "^0.9", optional = true}
+log = "0.4"
+rayon = "^1.5"
+rmp-serde = "^0.15"
+serde = { version = "^1.0", features = ["derive"] }
+tempfile = "^3.2"
+
+[dev-dependencies]
+rstest = "^0.12"
+rand = "^0.8"
+
+[features]
+memory-limit = ["deepsize"]
+
+[[example]]
+name = "quickstart"
+required-features = ["bytesize", "env_logger"]
