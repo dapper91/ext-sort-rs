@@ -8,40 +8,53 @@ use std::io;
 use std::marker::PhantomData;
 use std::path::Path;
 
-use crate::chunk::{ExternalChunk, RmpExternalChunk};
+use crate::chunk::{ExternalChunk, ExternalChunkError, RmpExternalChunk};
 use crate::merger::BinaryHeapMerger;
 use crate::{ChunkBuffer, ChunkBufferBuilder, LimitedBufferBuilder};
 
 /// Sorting error.
 #[derive(Debug)]
-pub enum SortError {
+pub enum SortError<S: Error, D: Error, I: Error> {
     /// Temporary directory or file creation error.
     TempDir(io::Error),
     /// Workers thread pool initialization error.
     ThreadPoolBuildError(rayon::ThreadPoolBuildError),
-    /// Data serialization/deserialization error.
-    DeSerializationError(Box<dyn Error>),
+    /// Common I/O error.
+    IO(io::Error),
+    /// Data serialization error.
+    SerializationError(S),
+    /// Data deserialization error.
+    DeserializationError(D),
     /// Input data stream error
-    InputError(Box<dyn Error>),
+    InputError(I),
 }
 
-impl Error for SortError {
+impl<S, D, I> Error for SortError<S, D, I>
+where
+    S: Error + 'static,
+    D: Error + 'static,
+    I: Error + 'static,
+{
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(match &self {
             SortError::TempDir(err) => err,
             SortError::ThreadPoolBuildError(err) => err,
-            SortError::DeSerializationError(err) => err.as_ref(),
-            SortError::InputError(err) => err.as_ref(),
+            SortError::IO(err) => err,
+            SortError::SerializationError(err) => err,
+            SortError::DeserializationError(err) => err,
+            SortError::InputError(err) => err,
         })
     }
 }
 
-impl Display for SortError {
+impl<S: Error, D: Error, I: Error> Display for SortError<S, D, I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             SortError::TempDir(err) => write!(f, "temporary directory or file not created: {}", err),
             SortError::ThreadPoolBuildError(err) => write!(f, "thread pool initialization failed: {}", err),
-            SortError::DeSerializationError(err) => write!(f, "data serialization/deserialization error: {}", err),
+            SortError::IO(err) => write!(f, "I/O operation failed: {}", err),
+            SortError::SerializationError(err) => write!(f, "data serialization error: {}", err),
+            SortError::DeserializationError(err) => write!(f, "data deserialization error: {}", err),
             SortError::InputError(err) => write!(f, "input data stream error: {}", err),
         }
     }
@@ -49,9 +62,12 @@ impl Display for SortError {
 
 /// External sorter builder.
 #[derive(Clone)]
-pub struct ExternalSorterBuilder<T: Send, B = LimitedBufferBuilder>
+pub struct ExternalSorterBuilder<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
+    T: Ord + Send,
+    E: Error,
     B: ChunkBufferBuilder<T>,
+    C: ExternalChunk<T>,
 {
     /// Number of threads to be used to sort data in parallel.
     threads_number: Option<usize>,
@@ -61,14 +77,21 @@ where
     rw_buf_size: Option<usize>,
     /// Chunk buffer builder.
     buffer_builder: B,
-    /// Item type.
+
+    /// External chunk type.
+    external_chunk_type: PhantomData<C>,
+    /// Input item type.
     item_type: PhantomData<T>,
+    /// Input error type.
+    input_error_type: PhantomData<E>,
 }
 
-impl<T, B> ExternalSorterBuilder<T, B>
+impl<T, E, B, C> ExternalSorterBuilder<T, E, B, C>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned + Ord + Send,
+    T: Ord + Send,
+    E: Error,
     B: ChunkBufferBuilder<T>,
+    C: ExternalChunk<T>,
 {
     /// Creates an instance of builder with default parameters.
     pub fn new() -> Self {
@@ -76,10 +99,9 @@ where
     }
 
     /// Builds external sorter using provided configuration.
-    pub fn build<C>(self) -> Result<ExternalSorter<T, B, C>, SortError>
-    where
-        C: ExternalChunk<T>,
-    {
+    pub fn build(
+        self,
+    ) -> Result<ExternalSorter<T, E, B, C>, SortError<C::SerializationError, C::DeserializationError, E>> {
         ExternalSorter::new(
             self.threads_number,
             self.tmp_dir.as_deref(),
@@ -89,34 +111,36 @@ where
     }
 
     /// Sets number of threads to be used to sort data in parallel.
-    pub fn with_threads_number(mut self, threads_number: usize) -> ExternalSorterBuilder<T, B> {
+    pub fn with_threads_number(mut self, threads_number: usize) -> ExternalSorterBuilder<T, E, B, C> {
         self.threads_number = Some(threads_number);
         return self;
     }
 
     /// Sets directory to be used to store temporary data.
-    pub fn with_tmp_dir(mut self, path: &Path) -> ExternalSorterBuilder<T, B> {
+    pub fn with_tmp_dir(mut self, path: &Path) -> ExternalSorterBuilder<T, E, B, C> {
         self.tmp_dir = Some(path.into());
         return self;
     }
 
     /// Sets buffer builder.
-    pub fn with_buffer(mut self, buffer_builder: B) -> ExternalSorterBuilder<T, B> {
+    pub fn with_buffer(mut self, buffer_builder: B) -> ExternalSorterBuilder<T, E, B, C> {
         self.buffer_builder = buffer_builder;
         return self;
     }
 
     /// Sets chunk read/write buffer size.
-    pub fn with_rw_buf_size(mut self, buf_size: usize) -> ExternalSorterBuilder<T, B> {
+    pub fn with_rw_buf_size(mut self, buf_size: usize) -> ExternalSorterBuilder<T, E, B, C> {
         self.rw_buf_size = Some(buf_size);
         return self;
     }
 }
 
-impl<T, B> Default for ExternalSorterBuilder<T, B>
+impl<T, E, B, C> Default for ExternalSorterBuilder<T, E, B, C>
 where
-    T: Send,
+    T: Ord + Send,
+    E: Error,
     B: ChunkBufferBuilder<T>,
+    C: ExternalChunk<T>,
 {
     fn default() -> Self {
         ExternalSorterBuilder {
@@ -124,30 +148,42 @@ where
             tmp_dir: None,
             rw_buf_size: None,
             buffer_builder: B::default(),
+            external_chunk_type: PhantomData,
             item_type: PhantomData,
+            input_error_type: PhantomData,
         }
     }
 }
 
 /// External sorter.
-pub struct ExternalSorter<T, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
+pub struct ExternalSorter<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned + Send,
+    T: Ord + Send,
+    E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
 {
+    /// Sorting thread pool.
     thread_pool: rayon::ThreadPool,
+    /// Directory to be used to store temporary data.
     tmp_dir: tempfile::TempDir,
+    /// Chunk buffer builder.
     buffer_builder: B,
+    /// Chunk file read/write buffer size.
     rw_buf_size: Option<usize>,
 
+    /// External chunk type.
     external_chunk_type: PhantomData<C>,
+    /// Input item type.
     item_type: PhantomData<T>,
+    /// Input error type.
+    input_error_type: PhantomData<E>,
 }
 
-impl<T, B, C> ExternalSorter<T, B, C>
+impl<T, E, B, C> ExternalSorter<T, E, B, C>
 where
-    T: serde::ser::Serialize + serde::de::DeserializeOwned + Ord + Send,
+    T: Ord + Send,
+    E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
 {
@@ -157,7 +193,7 @@ where
         tmp_path: Option<&Path>,
         buffer_builder: B,
         rw_buf_size: Option<usize>,
-    ) -> Result<Self, SortError> {
+    ) -> Result<Self, SortError<C::SerializationError, C::DeserializationError, E>> {
         return Ok(ExternalSorter {
             rw_buf_size,
             buffer_builder,
@@ -165,10 +201,13 @@ where
             tmp_dir: Self::init_tmp_directory(tmp_path)?,
             external_chunk_type: PhantomData,
             item_type: PhantomData,
+            input_error_type: PhantomData,
         });
     }
 
-    fn init_thread_pool(threads_number: Option<usize>) -> Result<rayon::ThreadPool, SortError> {
+    fn init_thread_pool(
+        threads_number: Option<usize>,
+    ) -> Result<rayon::ThreadPool, SortError<C::SerializationError, C::DeserializationError, E>> {
         let mut thread_pool_builder = rayon::ThreadPoolBuilder::new();
 
         if let Some(threads_number) = threads_number {
@@ -184,7 +223,9 @@ where
         return Ok(thread_pool);
     }
 
-    fn init_tmp_directory(tmp_path: Option<&Path>) -> Result<tempfile::TempDir, SortError> {
+    fn init_tmp_directory(
+        tmp_path: Option<&Path>,
+    ) -> Result<tempfile::TempDir, SortError<C::SerializationError, C::DeserializationError, E>> {
         let tmp_dir = if let Some(tmp_path) = tmp_path {
             tempfile::tempdir_in(tmp_path)
         } else {
@@ -198,10 +239,15 @@ where
     }
 
     /// Sorts data from input using external sort algorithm.
-    pub fn sort<I, E>(&self, input: I) -> Result<BinaryHeapMerger<T, impl ExternalChunk<T>>, SortError>
+    pub fn sort<I>(
+        &self,
+        input: I,
+    ) -> Result<
+        BinaryHeapMerger<T, C::DeserializationError, C>,
+        SortError<C::SerializationError, C::DeserializationError, E>,
+    >
     where
         I: IntoIterator<Item = Result<T, E>>,
-        E: Error + 'static,
     {
         let mut chunk_buf = self.buffer_builder.build();
         let mut external_chunks = Vec::new();
@@ -209,7 +255,7 @@ where
         for item in input.into_iter() {
             match item {
                 Ok(item) => chunk_buf.push(item),
-                Err(err) => return Err(SortError::InputError(Box::new(err))),
+                Err(err) => return Err(SortError::InputError(err)),
             }
 
             if chunk_buf.is_full() {
@@ -228,15 +274,20 @@ where
     }
 
     /// Sorts data and dumps it to an external chunk.
-    fn create_chunk(&self, mut chunk: impl ChunkBuffer<T>) -> Result<C, SortError> {
+    fn create_chunk(
+        &self,
+        mut chunk: impl ChunkBuffer<T>,
+    ) -> Result<C, SortError<C::SerializationError, C::DeserializationError, E>> {
         log::debug!("sorting chunk data ...");
         self.thread_pool.install(|| {
             chunk.par_sort();
         });
 
         log::debug!("saving chunk data");
-        let external_chunk = ExternalChunk::build(&self.tmp_dir, chunk, self.rw_buf_size)
-            .map_err(|err| SortError::DeSerializationError(err))?;
+        let external_chunk = ExternalChunk::build(&self.tmp_dir, chunk, self.rw_buf_size).map_err(|err| match err {
+            ExternalChunkError::IO(err) => SortError::IO(err),
+            ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
+        })?;
 
         return Ok(external_chunk);
     }
@@ -258,7 +309,7 @@ mod test {
         let mut input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_sorted.clone().map(|item| Ok(item)));
         input.shuffle(&mut rand::thread_rng());
 
-        let sorter: ExternalSorter<i32> = ExternalSorterBuilder::new()
+        let sorter: ExternalSorter<i32, _> = ExternalSorterBuilder::new()
             .with_buffer(LimitedBufferBuilder::new(8, true))
             .with_threads_number(2)
             .with_tmp_dir(Path::new("./"))

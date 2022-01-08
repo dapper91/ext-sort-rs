@@ -41,7 +41,7 @@ For more information see https://en.wikipedia.org/wiki/External_sorting.
         let input_reader = io::BufReader::new(fs::File::open("input.txt").unwrap());
         let mut output_writer = io::BufWriter::new(fs::File::create("output.txt").unwrap());
     
-        let sorter: ExternalSorter<String, MemoryLimitedBufferBuilder> = ExternalSorterBuilder::new()
+        let sorter: ExternalSorter<String, io::Error, MemoryLimitedBufferBuilder> = ExternalSorterBuilder::new()
             .with_tmp_dir(path::Path::new("tmp"))
             .with_buffer(MemoryLimitedBufferBuilder::new(50 * MB))
             .build()
