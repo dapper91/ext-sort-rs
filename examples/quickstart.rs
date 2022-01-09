@@ -6,8 +6,7 @@ use bytesize::MB;
 use env_logger;
 use log;
 
-use ext_sort::buffer::mem::MemoryLimitedBufferBuilder;
-use ext_sort::{ExternalSorter, ExternalSorterBuilder};
+use ext_sort::{buffer::mem::MemoryLimitedBufferBuilder, ExternalSorter, ExternalSorterBuilder};
 
 fn main() {
     env_logger::Builder::new().filter_level(log::LevelFilter::Debug).init();
@@ -16,7 +15,7 @@ fn main() {
     let mut output_writer = io::BufWriter::new(fs::File::create("output.txt").unwrap());
 
     let sorter: ExternalSorter<String, io::Error, MemoryLimitedBufferBuilder> = ExternalSorterBuilder::new()
-        .with_tmp_dir(path::Path::new("tmp"))
+        .with_tmp_dir(path::Path::new("./"))
         .with_buffer(MemoryLimitedBufferBuilder::new(50 * MB))
         .build()
         .unwrap();

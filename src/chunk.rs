@@ -1,3 +1,5 @@
+//! External chunk.
+
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::fs;
@@ -32,10 +34,17 @@ impl<S: Error> From<io::Error> for ExternalChunkError<S> {
 
 /// External chunk interface. Provides methods for creating a chunk stored on file system and reading data from it.
 pub trait ExternalChunk<T>: Sized + Iterator<Item = Result<T, Self::DeserializationError>> {
+    /// Error returned when data serialization failed.
     type SerializationError: Error;
+    /// Error returned when data deserialization failed.
     type DeserializationError: Error;
 
-    /// Builds an instance of an external chunk.
+    /// Builds an instance of an external chunk creating file and dumping the items to it.
+    ///
+    /// # Arguments
+    /// * `dir` - Directory the chunk file is created in
+    /// * `items` - Items to be dumped to the chunk
+    /// * `buf_size` - File I/O buffer size
     fn build(
         dir: &tempfile::TempDir,
         items: impl IntoIterator<Item = T>,
@@ -64,9 +73,16 @@ pub trait ExternalChunk<T>: Sized + Iterator<Item = Result<T, Self::Deserializat
     }
 
     /// Creates and instance of an external chunk.
+    ///
+    /// # Arguments
+    /// * `reader` - The reader of the file the chunk is stored in
     fn new(reader: io::Take<io::BufReader<fs::File>>) -> Self;
 
     /// Dumps items to an external file.
+    ///
+    /// # Arguments
+    /// * `chunk_writer` - The writer of the file the data should be dumped in
+    /// * `items` - Items to be dumped
     fn dump(
         chunk_writer: &mut io::BufWriter<fs::File>,
         items: impl IntoIterator<Item = T>,
@@ -75,7 +91,17 @@ pub trait ExternalChunk<T>: Sized + Iterator<Item = Result<T, Self::Deserializat
 
 /// RMP (Rust MessagePack) external chunk implementation.
 /// It uses MessagePack as a data serialization format.
-/// For more information see https://msgpack.org/.
+/// For more information see [msgpack.org](https://msgpack.org/).
+///
+/// # Example
+///
+/// ```no_run
+/// use tempfile::TempDir;
+/// use ext_sort::{ExternalChunk, RmpExternalChunk};
+///
+/// let dir = TempDir::new().unwrap();
+/// let chunk: RmpExternalChunk<i32> = ExternalChunk::build(&dir, (0..1000), None).unwrap();
+/// ```
 pub struct RmpExternalChunk<T> {
     reader: io::Take<io::BufReader<fs::File>>,
 

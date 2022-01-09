@@ -1,6 +1,6 @@
 [package]
 name = "ext-sort"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Unlicense"
 description = "rust external sort algorithm implementation"
@@ -17,7 +17,7 @@ keywords = ["algorithms", "sort", "sorting", "external-sort", "external"]
 bytesize = { version = "^1.1", optional = true }
 deepsize = { version = "^0.2", optional = true }
 env_logger = { version = "^0.9", optional = true}
-log = "0.4"
+log = "^0.4"
 rayon = "^1.5"
 rmp-serde = "^0.15"
 serde = { version = "^1.0", features = ["derive"] }
@@ -33,3 +33,11 @@ memory-limit = ["deepsize"]
 [[example]]
 name = "quickstart"
 required-features = ["bytesize", "env_logger"]
+
+[[example]]
+name = "custom_serializer"
+required-features = ["env_logger"]
+
+[[example]]
+name = "custom_type"
+required-features = ["env_logger"]
