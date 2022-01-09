@@ -33,3 +33,11 @@ memory-limit = ["deepsize"]
 [[example]]
 name = "quickstart"
 required-features = ["bytesize", "env_logger"]
+
+[[example]]
+name = "custom_serializer"
+required-features = ["env_logger"]
+
+[[example]]
+name = "custom_type"
+required-features = ["env_logger"]
