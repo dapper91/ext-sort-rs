@@ -1,33 +1,43 @@
-//! Limited buffer implementations.
+//! Limited chunk buffer.
 
 use rayon;
 
-/// Buffer builder.
+/// Limited buffer builder. Creates buffers using provided buffer parameters.
 pub trait ChunkBufferBuilder<T: Send>: Default {
+    /// Building buffer type
     type Buffer: ChunkBuffer<T>;
 
-    /// Creates a new buffer.
+    /// Creates a new [`ChunkBuffer`] trait instance.
     fn build(&self) -> Self::Buffer;
 }
 
-/// Base limited buffer interface.
+/// Base limited buffer interface. Provides methods for pushing data to the buffer and checking buffer state.
 pub trait ChunkBuffer<T: Send>: IntoIterator<Item = T> + rayon::slice::ParallelSliceMut<T> + Send {
     /// Adds a new element to the buffer.
+    ///
+    /// # Arguments
+    /// * `item` - Item to be added to the buffer
     fn push(&mut self, item: T);
 
-    /// Returns buffer length
+    /// Returns the buffer length.
     fn len(&self) -> usize;
 
     /// Checks if the buffer reached the limit.
     fn is_full(&self) -> bool;
 }
 
+/// [`LimitedBuffer`] builder.
 pub struct LimitedBufferBuilder {
     buffer_limit: usize,
     preallocate: bool,
 }
 
 impl LimitedBufferBuilder {
+    /// Creates a new instance of a builder.
+    ///
+    /// # Arguments
+    /// * `buffer_limit` - Buffer size limit in element count
+    /// * `preallocate` - If buffer should be preallocated
     pub fn new(buffer_limit: usize, preallocate: bool) -> Self {
         LimitedBufferBuilder {
             buffer_limit,
@@ -64,6 +74,10 @@ pub struct LimitedBuffer<T> {
 }
 
 impl<T> LimitedBuffer<T> {
+    /// Creates a new buffer instance.
+    ///
+    /// # Arguments
+    /// * `limit` - Buffer elements count limit
     pub fn new(limit: usize) -> Self {
         LimitedBuffer {
             limit,
@@ -71,6 +85,10 @@ impl<T> LimitedBuffer<T> {
         }
     }
 
+    /// Creates a new buffer instance with provided capacity.
+    ///
+    /// # Arguments
+    /// * `limit` - Buffer elements count limit
     pub fn with_capacity(limit: usize) -> Self {
         LimitedBuffer {
             limit,
@@ -134,11 +152,16 @@ pub mod mem {
 
     use super::{ChunkBuffer, ChunkBufferBuilder};
 
+    /// [`MemoryLimitedBuffer`] builder.
     pub struct MemoryLimitedBufferBuilder {
         buffer_limit: u64,
     }
 
     impl MemoryLimitedBufferBuilder {
+        /// Creates a new instance of a builder.
+        ///
+        /// # Arguments
+        /// * `buffer_limit` - Buffer size limit in bytes
         pub fn new(buffer_limit: u64) -> Self {
             MemoryLimitedBufferBuilder { buffer_limit }
         }
@@ -169,6 +192,10 @@ pub mod mem {
     }
 
     impl<T> MemoryLimitedBuffer<T> {
+        /// Creates a new instance of a buffer.
+        ///
+        /// # Arguments
+        /// * `limit` - Buffer size limit in bytes
         pub fn new(limit: u64) -> Self {
             MemoryLimitedBuffer {
                 limit,
@@ -177,6 +204,7 @@ pub mod mem {
             }
         }
 
+        /// Returns buffer size in bytes.
         pub fn mem_size(&self) -> u64 {
             self.current_size
         }

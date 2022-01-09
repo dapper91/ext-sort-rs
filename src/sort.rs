@@ -1,4 +1,4 @@
-//! External sorter implementation.
+//! External sorter.
 
 use log;
 use std::error::Error;
@@ -60,7 +60,7 @@ impl<S: Error, D: Error, I: Error> Display for SortError<S, D, I> {
     }
 }
 
-/// External sorter builder.
+/// External sorter builder. Provides methods for [`ExternalSorter`] initialization.
 #[derive(Clone)]
 pub struct ExternalSorterBuilder<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
@@ -93,12 +93,12 @@ where
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
 {
-    /// Creates an instance of builder with default parameters.
+    /// Creates an instance of a builder with default parameters.
     pub fn new() -> Self {
         ExternalSorterBuilder::default()
     }
 
-    /// Builds external sorter using provided configuration.
+    /// Builds an [`ExternalSorter`] instance using provided configuration.
     pub fn build(
         self,
     ) -> Result<ExternalSorter<T, E, B, C>, SortError<C::SerializationError, C::DeserializationError, E>> {
@@ -188,6 +188,14 @@ where
     C: ExternalChunk<T>,
 {
     /// Creates a new external sorter instance.
+    ///
+    /// # Arguments
+    /// * `threads_number` - Number of threads to be used to sort data in parallel. If the parameter is [`None`]
+    ///   threads number will be selected based on available CPU core number.
+    /// * `tmp_path` - Directory to be used to store temporary data. If paramater is [`None`] default OS temporary
+    ///   directory will be used.
+    /// * `buffer_builder` - An instance of a buffer builder that will be used for chunk buffer creation.
+    /// * `rw_buf_size` - Chunks file read/write buffer size.
     pub fn new(
         threads_number: Option<usize>,
         tmp_path: Option<&Path>,
@@ -239,6 +247,7 @@ where
     }
 
     /// Sorts data from input using external sort algorithm.
+    /// Returns an iterator that can be used to get sorted data stream.
     pub fn sort<I>(
         &self,
         input: I,
@@ -273,7 +282,6 @@ where
         return Ok(BinaryHeapMerger::new(external_chunks));
     }
 
-    /// Sorts data and dumps it to an external chunk.
     fn create_chunk(
         &self,
         mut chunk: impl ChunkBuffer<T>,
