@@ -17,7 +17,7 @@ keywords = ["algorithms", "sort", "sorting", "external-sort", "external"]
 bytesize = { version = "^1.1", optional = true }
 deepsize = { version = "^0.2", optional = true }
 env_logger = { version = "^0.9", optional = true}
-log = "0.4"
+log = "^0.4"
 rayon = "^1.5"
 rmp-serde = "^0.15"
 serde = { version = "^1.0", features = ["derive"] }
