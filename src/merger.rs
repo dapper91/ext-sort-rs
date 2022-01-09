@@ -25,8 +25,11 @@ where
     E: Error,
     C: IntoIterator<Item = Result<T, E>>,
 {
-    /// Creates an instance of binary heap merger using chunks as inputs.
+    /// Creates an instance of a binary heap merger using chunks as inputs.
     /// Chunk items should be sorted in ascending order otherwise the result is undefined.
+    ///
+    /// # Arguments
+    /// * `chunks` - Chunks to be merged in a single sorted one
     pub fn new<I>(chunks: I) -> Self
     where
         I: IntoIterator<Item = C>,
@@ -50,7 +53,7 @@ where
 {
     type Item = Result<T, E>;
 
-    /// Returns the next item from inputs in ascending order.
+    /// Returns the next item from the inputs in ascending order.
     fn next(&mut self) -> Option<Self::Item> {
         if !self.initiated {
             for (idx, chunk) in self.chunks.iter_mut().enumerate() {
