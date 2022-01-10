@@ -1,6 +1,7 @@
 //! External sorter.
 
 use log;
+use std::cmp::Ordering;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -64,7 +65,7 @@ impl<S: Error, D: Error, I: Error> Display for SortError<S, D, I> {
 #[derive(Clone)]
 pub struct ExternalSorterBuilder<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
-    T: Ord + Send,
+    T: Send,
     E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
@@ -88,7 +89,7 @@ where
 
 impl<T, E, B, C> ExternalSorterBuilder<T, E, B, C>
 where
-    T: Ord + Send,
+    T: Send,
     E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
@@ -137,7 +138,7 @@ where
 
 impl<T, E, B, C> Default for ExternalSorterBuilder<T, E, B, C>
 where
-    T: Ord + Send,
+    T: Send,
     E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
@@ -158,7 +159,7 @@ where
 /// External sorter.
 pub struct ExternalSorter<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
 where
-    T: Ord + Send,
+    T: Send,
     E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
@@ -182,7 +183,7 @@ where
 
 impl<T, E, B, C> ExternalSorter<T, E, B, C>
 where
-    T: Ord + Send,
+    T: Send,
     E: Error,
     B: ChunkBufferBuilder<T>,
     C: ExternalChunk<T>,
@@ -246,17 +247,42 @@ where
         return Ok(tmp_dir);
     }
 
-    /// Sorts data from input using external sort algorithm.
+    /// Sorts data from the input.
     /// Returns an iterator that can be used to get sorted data stream.
+    ///
+    /// # Arguments
+    /// * `input` - Input stream data to be fetched from
     pub fn sort<I>(
         &self,
         input: I,
     ) -> Result<
-        BinaryHeapMerger<T, C::DeserializationError, C>,
+        BinaryHeapMerger<T, C::DeserializationError, impl Fn(&T, &T) -> Ordering + Copy, C>,
+        SortError<C::SerializationError, C::DeserializationError, E>,
+    >
+    where
+        T: Ord,
+        I: IntoIterator<Item = Result<T, E>>,
+    {
+        self.sort_by(input, T::cmp)
+    }
+
+    /// Sorts data from the input using a custom compare function.
+    /// Returns an iterator that can be used to get sorted data stream.
+    ///
+    /// # Arguments
+    /// * `input` - Input stream data to be fetched from
+    /// * `compare` - Function be be used to compare items
+    pub fn sort_by<I, F>(
+        &self,
+        input: I,
+        compare: F,
+    ) -> Result<
+        BinaryHeapMerger<T, C::DeserializationError, F, C>,
         SortError<C::SerializationError, C::DeserializationError, E>,
     >
     where
         I: IntoIterator<Item = Result<T, E>>,
+        F: Fn(&T, &T) -> Ordering + Sync + Send + Copy,
     {
         let mut chunk_buf = self.buffer_builder.build();
         let mut external_chunks = Vec::new();
@@ -268,34 +294,39 @@ where
             }
 
             if chunk_buf.is_full() {
-                external_chunks.push(self.create_chunk(chunk_buf)?);
+                external_chunks.push(self.create_chunk(chunk_buf, compare)?);
                 chunk_buf = self.buffer_builder.build();
             }
         }
 
         if chunk_buf.len() > 0 {
-            external_chunks.push(self.create_chunk(chunk_buf)?);
+            external_chunks.push(self.create_chunk(chunk_buf, compare)?);
         }
 
         log::debug!("external sort preparation done");
 
-        return Ok(BinaryHeapMerger::new(external_chunks));
+        return Ok(BinaryHeapMerger::new(external_chunks, compare));
     }
 
-    fn create_chunk(
+    fn create_chunk<F>(
         &self,
-        mut chunk: impl ChunkBuffer<T>,
-    ) -> Result<C, SortError<C::SerializationError, C::DeserializationError, E>> {
+        mut buffer: impl ChunkBuffer<T>,
+        compare: F,
+    ) -> Result<C, SortError<C::SerializationError, C::DeserializationError, E>>
+    where
+        F: Fn(&T, &T) -> Ordering + Sync + Send,
+    {
         log::debug!("sorting chunk data ...");
         self.thread_pool.install(|| {
-            chunk.par_sort();
+            buffer.par_sort_by(compare);
         });
 
         log::debug!("saving chunk data");
-        let external_chunk = ExternalChunk::build(&self.tmp_dir, chunk, self.rw_buf_size).map_err(|err| match err {
-            ExternalChunkError::IO(err) => SortError::IO(err),
-            ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
-        })?;
+        let external_chunk =
+            ExternalChunk::build(&self.tmp_dir, buffer, self.rw_buf_size).map_err(|err| match err {
+                ExternalChunkError::IO(err) => SortError::IO(err),
+                ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
+            })?;
 
         return Ok(external_chunk);
     }
@@ -307,11 +338,14 @@ mod test {
     use std::path::Path;
 
     use rand::seq::SliceRandom;
+    use rstest::*;
 
     use super::{ExternalSorter, ExternalSorterBuilder, LimitedBufferBuilder};
 
-    #[test]
-    fn test_external_sorter() {
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn test_external_sorter(#[case] reversed: bool) {
         let input_sorted = 0..100;
 
         let mut input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_sorted.clone().map(|item| Ok(item)));
@@ -324,11 +358,21 @@ mod test {
             .build()
             .unwrap();
 
-        let result = sorter.sort(input).unwrap();
+        let compare = if reversed {
+            |a: &i32, b: &i32| a.cmp(b).reverse()
+        } else {
+            |a: &i32, b: &i32| a.cmp(b)
+        };
+
+        let result = sorter.sort_by(input, compare).unwrap();
 
         let actual_result: Result<Vec<i32>, _> = result.collect();
         let actual_result = actual_result.unwrap();
-        let expected_result = Vec::from_iter(input_sorted.clone());
+        let expected_result = if reversed {
+            Vec::from_iter(input_sorted.clone().rev())
+        } else {
+            Vec::from_iter(input_sorted.clone())
+        };
 
         assert_eq!(actual_result, expected_result)
     }
