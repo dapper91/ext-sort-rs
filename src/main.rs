@@ -63,7 +63,15 @@ fn main() {
         }
     };
 
-    let sorted_stream = match sorter.sort(input_stream.lines()) {
+    let compare = |a: &String, b: &String| {
+        if order == Order::Asc {
+            a.cmp(&b)
+        } else {
+            a.cmp(&b).reverse()
+        }
+    };
+
+    let sorted_stream = match sorter.sort_by(input_stream.lines(), compare) {
         Ok(sorted_stream) => sorted_stream,
         Err(err) => {
             log::error!("data sorting error: {}", err);
@@ -115,7 +123,7 @@ impl std::str::FromStr for LogLevel {
     }
 }
 
-#[derive(Copy, Clone, clap::ArgEnum)]
+#[derive(Copy, Clone, PartialEq, clap::ArgEnum)]
 enum Order {
     Asc,
     Desc,
