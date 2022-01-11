@@ -1,28 +1,80 @@
 //! Binary heap merger.
 
+use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::error::Error;
+
+/// Value wrapper binding custom compare function to a value.
+struct OrderedWrapper<T, F>
+where
+    F: Fn(&T, &T) -> Ordering,
+{
+    value: T,
+    compare: F,
+}
+
+impl<T, F> OrderedWrapper<T, F>
+where
+    F: Fn(&T, &T) -> Ordering,
+{
+    fn wrap(value: T, compare: F) -> Self {
+        OrderedWrapper { value, compare }
+    }
+
+    fn unwrap(self) -> T {
+        self.value
+    }
+}
+
+impl<T, F> PartialEq for OrderedWrapper<T, F>
+where
+    F: Fn(&T, &T) -> Ordering,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<T, F> Eq for OrderedWrapper<T, F> where F: Fn(&T, &T) -> Ordering {}
+
+impl<T, F> PartialOrd for OrderedWrapper<T, F>
+where
+    F: Fn(&T, &T) -> Ordering,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<T, F> Ord for OrderedWrapper<T, F>
+where
+    F: Fn(&T, &T) -> Ordering,
+{
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.compare)(&self.value, &other.value)
+    }
+}
 
 /// Binary heap merger implementation.
 /// Merges multiple sorted inputs into a single sorted output.
 /// Time complexity is *m* \* log(*n*) in worst case where *m* is the number of items,
 /// *n* is the number of chunks (inputs).
-pub struct BinaryHeapMerger<T, E, C>
+pub struct BinaryHeapMerger<T, E, F, C>
 where
-    T: Ord,
     E: Error,
+    F: Fn(&T, &T) -> Ordering,
     C: IntoIterator<Item = Result<T, E>>,
 {
     // binary heap is max-heap by default so we reverse it to convert it to min-heap
-    items: BinaryHeap<(std::cmp::Reverse<T>, usize)>,
+    items: BinaryHeap<(std::cmp::Reverse<OrderedWrapper<T, F>>, usize)>,
     chunks: Vec<C::IntoIter>,
     initiated: bool,
+    compare: F,
 }
 
-impl<T, E, C> BinaryHeapMerger<T, E, C>
+impl<T, E, F, C> BinaryHeapMerger<T, E, F, C>
 where
-    T: Ord,
     E: Error,
+    F: Fn(&T, &T) -> Ordering,
     C: IntoIterator<Item = Result<T, E>>,
 {
     /// Creates an instance of a binary heap merger using chunks as inputs.
@@ -30,7 +82,7 @@ where
     ///
     /// # Arguments
     /// * `chunks` - Chunks to be merged in a single sorted one
-    pub fn new<I>(chunks: I) -> Self
+    pub fn new<I>(chunks: I, compare: F) -> Self
     where
         I: IntoIterator<Item = C>,
     {
@@ -40,15 +92,16 @@ where
         return BinaryHeapMerger {
             chunks,
             items,
+            compare,
             initiated: false,
         };
     }
 }
 
-impl<T, E, C> Iterator for BinaryHeapMerger<T, E, C>
+impl<T, E, F, C> Iterator for BinaryHeapMerger<T, E, F, C>
 where
-    T: Ord,
     E: Error,
+    F: Fn(&T, &T) -> Ordering + Copy,
     C: IntoIterator<Item = Result<T, E>>,
 {
     type Item = Result<T, E>;
@@ -59,7 +112,9 @@ where
             for (idx, chunk) in self.chunks.iter_mut().enumerate() {
                 if let Some(item) = chunk.next() {
                     match item {
-                        Ok(item) => self.items.push((std::cmp::Reverse(item), idx)),
+                        Ok(item) => self
+                            .items
+                            .push((std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)), idx)),
                         Err(err) => return Some(Err(err)),
                     }
                 }
@@ -70,12 +125,14 @@ where
         let (result, idx) = self.items.pop()?;
         if let Some(item) = self.chunks[idx].next() {
             match item {
-                Ok(item) => self.items.push((std::cmp::Reverse(item), idx)),
+                Ok(item) => self
+                    .items
+                    .push((std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)), idx)),
                 Err(err) => return Some(Err(err)),
             }
         }
 
-        return Some(Ok(result.0));
+        return Some(Ok(result.0.unwrap()));
     }
 }
 
@@ -131,7 +188,7 @@ mod test {
         #[case] chunks: Vec<Vec<Result<i32, io::Error>>>,
         #[case] expected_result: Vec<Result<i32, io::Error>>,
     ) {
-        let merger = BinaryHeapMerger::new(chunks);
+        let merger = BinaryHeapMerger::new(chunks, i32::cmp);
         let actual_result = merger.collect();
         assert!(
             compare_vectors_of_result::<_, io::Error>(&actual_result, &expected_result),
