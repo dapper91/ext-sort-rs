@@ -22,7 +22,10 @@ impl<S: Error> Error for ExternalChunkError<S> {}
 
 impl<S: Error> Display for ExternalChunkError<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self)
+        match self {
+            ExternalChunkError::IO(err) => write!(f, "{}", err),
+            ExternalChunkError::SerializationError(err) => write!(f, "{}", err),
+        }
     }
 }
 
