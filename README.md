@@ -46,7 +46,7 @@ Activate `memory-limit` feature of the ext-sort crate on Cargo.toml:
 
 ```toml
 [dependencies]
-ext-sort = { version = "^0.1.2", features = ["memory-limit"] }
+ext-sort = { version = "^0.1.3", features = ["memory-limit"] }
 ```
 
 ```rust
