@@ -33,11 +33,11 @@ memory-limit = ["deepsize"]
 
 [[bin]]
 name = "ext-sort"
-required-features = ["bytesize", "clap", "env_logger"]
+required-features = ["bytesize", "clap", "env_logger", "memory-limit"]
 
 [[example]]
 name = "quickstart"
-required-features = ["bytesize", "env_logger"]
+required-features = ["bytesize", "env_logger", "memory-limit"]
 
 [[example]]
 name = "custom_serializer"
