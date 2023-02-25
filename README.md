@@ -49,7 +49,7 @@ Activate `memory-limit` feature of the ext-sort crate on Cargo.toml:
 ext-sort = { version = "^0.1.2", features = ["memory-limit"] }
 ```
 
-``` rust
+```rust
 use std::fs;
 use std::io::{self, prelude::*};
 use std::path;
