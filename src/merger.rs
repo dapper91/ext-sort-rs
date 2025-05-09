@@ -65,7 +65,7 @@ where
     C: IntoIterator<Item = Result<T, E>>,
 {
     // binary heap is max-heap by default so we reverse it to convert it to min-heap
-    items: BinaryHeap<(std::cmp::Reverse<OrderedWrapper<T, F>>, usize)>,
+    items: BinaryHeap<(std::cmp::Reverse<OrderedWrapper<T, F>>, std::cmp::Reverse<usize>)>,
     chunks: Vec<C::IntoIter>,
     initiated: bool,
     compare: F,
@@ -114,7 +114,7 @@ where
                     match item {
                         Ok(item) => self
                             .items
-                            .push((std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)), idx)),
+                            .push((std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)), std::cmp::Reverse(idx))),
                         Err(err) => return Some(Err(err)),
                     }
                 }
@@ -123,7 +123,7 @@ where
         }
 
         let (result, idx) = self.items.pop()?;
-        if let Some(item) = self.chunks[idx].next() {
+        if let Some(item) = self.chunks[idx.0].next() {
             match item {
                 Ok(item) => self
                     .items

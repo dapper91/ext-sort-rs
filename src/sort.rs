@@ -348,8 +348,10 @@ mod test {
     fn test_external_sorter(#[case] reversed: bool) {
         let input_sorted = 0..100;
 
-        let mut input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_sorted.clone().map(|item| Ok(item)));
-        input.shuffle(&mut rand::thread_rng());
+        let mut input_shuffled = Vec::from_iter(input_sorted.clone());
+        input_shuffled.shuffle(&mut rand::thread_rng());
+
+        let input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(|item| Ok(item)));
 
         let sorter: ExternalSorter<i32, _> = ExternalSorterBuilder::new()
             .with_buffer(LimitedBufferBuilder::new(8, true))
@@ -367,6 +369,45 @@ mod test {
         let result = sorter.sort_by(input, compare).unwrap();
 
         let actual_result: Result<Vec<i32>, _> = result.collect();
+        let actual_result = actual_result.unwrap();
+        let expected_result = if reversed {
+            Vec::from_iter(input_sorted.clone().rev())
+        } else {
+            Vec::from_iter(input_sorted.clone())
+        };
+
+        assert_eq!(actual_result, expected_result)
+    }
+
+    #[rstest]
+    #[case(false)]
+    #[case(true)]
+    fn test_external_sorter_stability(#[case] reversed: bool) {
+        let input_sorted = (0..20).flat_map(|x|(0..5).map(move |y| (x, y)));
+
+        let mut input_shuffled = Vec::from_iter(input_sorted.clone());
+        input_shuffled.shuffle(&mut rand::thread_rng());
+        // sort input by the second field to check sorting stability
+        input_shuffled.sort_by(|a: &(i32, i32), b: &(i32, i32)| if reversed {a.1.cmp(&b.1).reverse()} else {a.1.cmp(&b.1)});
+
+        let input: Vec<Result<(i32, i32), io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(|item| Ok(item)));
+
+        let sorter: ExternalSorter<(i32, i32), _> = ExternalSorterBuilder::new()
+            .with_buffer(LimitedBufferBuilder::new(8, true))
+            .with_threads_number(2)
+            .with_tmp_dir(Path::new("./"))
+            .build()
+            .unwrap();
+
+        let compare = if reversed {
+            |a: &(i32, i32), b: &(i32, i32)| a.0.cmp(&b.0).reverse()
+        } else {
+            |a: &(i32, i32), b: &(i32, i32)| a.0.cmp(&b.0)
+        };
+
+        let result = sorter.sort_by(input, compare).unwrap();
+
+        let actual_result: Result<Vec<(i32, i32)>, _> = result.collect();
         let actual_result = actual_result.unwrap();
         let expected_result = if reversed {
             Vec::from_iter(input_sorted.clone().rev())
