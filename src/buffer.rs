@@ -51,9 +51,9 @@ impl<T: Send> ChunkBufferBuilder<T> for LimitedBufferBuilder {
 
     fn build(&self) -> Self::Buffer {
         if self.preallocate {
-            LimitedBuffer::new(self.buffer_limit)
-        } else {
             LimitedBuffer::with_capacity(self.buffer_limit)
+        } else {
+            LimitedBuffer::new(self.buffer_limit)
         }
     }
 }
