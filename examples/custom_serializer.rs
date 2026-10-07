@@ -3,9 +3,6 @@ use std::fs::File;
 use std::io::{self, prelude::*, BufReader, BufWriter, Take};
 use std::path;
 
-use env_logger;
-use log;
-
 use ext_sort::{ExternalChunk, ExternalSorter, ExternalSorterBuilder, LimitedBufferBuilder};
 
 struct CustomExternalChunk {
@@ -28,7 +25,7 @@ impl ExternalChunk<u32> for CustomExternalChunk {
             chunk_writer.write_all(&item.to_le_bytes())?;
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 
@@ -40,7 +37,7 @@ impl Iterator for CustomExternalChunk {
             None
         } else {
             let mut buf: [u8; 4] = [0; 4];
-            match self.reader.read_exact(&mut buf.as_mut_slice()) {
+            match self.reader.read_exact(buf.as_mut_slice()) {
                 Ok(_) => Some(Ok(u32::from_le_bytes(buf))),
                 Err(err) => Some(Err(err)),
             }
@@ -66,7 +63,7 @@ fn main() {
             let line = line.unwrap();
             let number = line.parse().unwrap();
 
-            return Ok(number);
+            Ok(number)
         }))
         .unwrap();
 

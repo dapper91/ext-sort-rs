@@ -5,8 +5,6 @@ use std::process;
 
 use bytesize::ByteSize;
 use clap::ArgEnum;
-use env_logger;
-use log;
 
 use ext_sort::buffer::mem::MemoryLimitedBufferBuilder;
 use ext_sort::{ExternalSorter, ExternalSorterBuilder};
@@ -65,9 +63,9 @@ fn main() {
 
     let compare = |a: &String, b: &String| {
         if order == Order::Asc {
-            a.cmp(&b)
+            a.cmp(b)
         } else {
-            a.cmp(&b).reverse()
+            a.cmp(b).reverse()
         }
     };
 

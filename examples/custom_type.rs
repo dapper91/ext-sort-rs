@@ -5,10 +5,6 @@ use std::fs;
 use std::io::{self, prelude::*};
 use std::path;
 
-use env_logger;
-use log;
-use serde;
-
 use ext_sort::{ExternalSorter, ExternalSorterBuilder, LimitedBufferBuilder};
 
 #[derive(Debug)]
@@ -58,7 +54,7 @@ impl Person {
 
 impl PartialOrd for Person {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 

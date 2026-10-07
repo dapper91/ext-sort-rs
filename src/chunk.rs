@@ -72,7 +72,7 @@ pub trait ExternalChunk<T>: Sized + Iterator<Item = Result<T, Self::Deserializat
         chunk_reader.rewind()?;
         let file_len = tmp_file.metadata()?.len();
 
-        return Ok(Self::new(chunk_reader.take(file_len)));
+        Ok(Self::new(chunk_reader.take(file_len)))
     }
 
     /// Creates and instance of an external chunk.
@@ -129,11 +129,11 @@ where
         mut chunk_writer: &mut io::BufWriter<fs::File>,
         items: impl IntoIterator<Item = T>,
     ) -> Result<(), Self::SerializationError> {
-        for item in items.into_iter() {
+        for item in items {
             rmp_serde::encode::write(&mut chunk_writer, &item)?;
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 

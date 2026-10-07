@@ -22,6 +22,11 @@ pub trait ChunkBuffer<T: Send>: IntoIterator<Item = T> + rayon::slice::ParallelS
     /// Returns the buffer length.
     fn len(&self) -> usize;
 
+    /// Checks if the buffer is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Checks if the buffer reached the limit.
     fn is_full(&self) -> bool;
 }
@@ -136,9 +141,9 @@ mod test {
         let mut buffer = builder.build();
 
         buffer.push(0);
-        assert_eq!(buffer.is_full(), false);
+        assert!(!buffer.is_full());
         buffer.push(1);
-        assert_eq!(buffer.is_full(), true);
+        assert!(buffer.is_full());
 
         let data = Vec::from_iter(buffer);
         assert_eq!(data, vec![0, 1]);
@@ -266,7 +271,7 @@ pub mod mem {
             };
             buffer.push(item1.clone());
             assert_eq!(buffer.mem_size(), 38);
-            assert_eq!(buffer.is_full(), false);
+            assert!(!buffer.is_full());
 
             let item2 = MyType {
                 number: 1,               // 8 bytes
@@ -274,7 +279,7 @@ pub mod mem {
             };
             buffer.push(item2.clone());
             assert_eq!(buffer.mem_size(), 76);
-            assert_eq!(buffer.is_full(), true);
+            assert!(buffer.is_full());
 
             let actual_data = Vec::from_iter(buffer);
             let expected_data = vec![item1, item2];

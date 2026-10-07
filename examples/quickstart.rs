@@ -3,8 +3,6 @@ use std::io::{self, prelude::*};
 use std::path;
 
 use bytesize::MB;
-use env_logger;
-use log;
 
 use ext_sort::{buffer::mem::MemoryLimitedBufferBuilder, ExternalSorter, ExternalSorterBuilder};
 

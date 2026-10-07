@@ -61,6 +61,13 @@ impl<S: Error, D: Error, I: Error> Display for SortError<S, D, I> {
     }
 }
 
+/// [`SortError`] parameterized by the error types of external chunk `C`.
+type ChunkSortError<T, E, C> =
+    SortError<<C as ExternalChunk<T>>::SerializationError, <C as ExternalChunk<T>>::DeserializationError, E>;
+
+/// Result of a sorter operation producing `R`.
+type SortResult<R, T, E, C> = Result<R, ChunkSortError<T, E, C>>;
+
 /// External sorter builder. Provides methods for [`ExternalSorter`] initialization.
 #[derive(Clone)]
 pub struct ExternalSorterBuilder<T, E, B = LimitedBufferBuilder, C = RmpExternalChunk<T>>
@@ -100,9 +107,7 @@ where
     }
 
     /// Builds an [`ExternalSorter`] instance using provided configuration.
-    pub fn build(
-        self,
-    ) -> Result<ExternalSorter<T, E, B, C>, SortError<C::SerializationError, C::DeserializationError, E>> {
+    pub fn build(self) -> SortResult<ExternalSorter<T, E, B, C>, T, E, C> {
         ExternalSorter::new(
             self.threads_number,
             self.tmp_dir.as_deref(),
@@ -114,25 +119,25 @@ where
     /// Sets number of threads to be used to sort data in parallel.
     pub fn with_threads_number(mut self, threads_number: usize) -> ExternalSorterBuilder<T, E, B, C> {
         self.threads_number = Some(threads_number);
-        return self;
+        self
     }
 
     /// Sets directory to be used to store temporary data.
     pub fn with_tmp_dir(mut self, path: &Path) -> ExternalSorterBuilder<T, E, B, C> {
         self.tmp_dir = Some(path.into());
-        return self;
+        self
     }
 
     /// Sets buffer builder.
     pub fn with_buffer(mut self, buffer_builder: B) -> ExternalSorterBuilder<T, E, B, C> {
         self.buffer_builder = buffer_builder;
-        return self;
+        self
     }
 
     /// Sets chunk read/write buffer size.
     pub fn with_rw_buf_size(mut self, buf_size: usize) -> ExternalSorterBuilder<T, E, B, C> {
         self.rw_buf_size = Some(buf_size);
-        return self;
+        self
     }
 }
 
@@ -202,8 +207,8 @@ where
         tmp_path: Option<&Path>,
         buffer_builder: B,
         rw_buf_size: Option<usize>,
-    ) -> Result<Self, SortError<C::SerializationError, C::DeserializationError, E>> {
-        return Ok(ExternalSorter {
+    ) -> Result<Self, ChunkSortError<T, E, C>> {
+        Ok(ExternalSorter {
             rw_buf_size,
             buffer_builder,
             thread_pool: Self::init_thread_pool(threads_number)?,
@@ -211,12 +216,10 @@ where
             external_chunk_type: PhantomData,
             item_type: PhantomData,
             input_error_type: PhantomData,
-        });
+        })
     }
 
-    fn init_thread_pool(
-        threads_number: Option<usize>,
-    ) -> Result<rayon::ThreadPool, SortError<C::SerializationError, C::DeserializationError, E>> {
+    fn init_thread_pool(threads_number: Option<usize>) -> Result<rayon::ThreadPool, ChunkSortError<T, E, C>> {
         let mut thread_pool_builder = rayon::ThreadPoolBuilder::new();
 
         if let Some(threads_number) = threads_number {
@@ -229,12 +232,10 @@ where
             .build()
             .map_err(|err| SortError::ThreadPoolBuildError(err))?;
 
-        return Ok(thread_pool);
+        Ok(thread_pool)
     }
 
-    fn init_tmp_directory(
-        tmp_path: Option<&Path>,
-    ) -> Result<tempfile::TempDir, SortError<C::SerializationError, C::DeserializationError, E>> {
+    fn init_tmp_directory(tmp_path: Option<&Path>) -> Result<tempfile::TempDir, ChunkSortError<T, E, C>> {
         let tmp_dir = if let Some(tmp_path) = tmp_path {
             tempfile::tempdir_in(tmp_path)
         } else {
@@ -244,7 +245,7 @@ where
 
         log::info!("using {} as a temporary directory", tmp_dir.path().display());
 
-        return Ok(tmp_dir);
+        Ok(tmp_dir)
     }
 
     /// Sorts data from the input.
@@ -252,13 +253,11 @@ where
     ///
     /// # Arguments
     /// * `input` - Input stream data to be fetched from
+    #[allow(clippy::type_complexity)] // the `impl Fn` cannot be named by an alias
     pub fn sort<I>(
         &self,
         input: I,
-    ) -> Result<
-        BinaryHeapMerger<T, C::DeserializationError, impl Fn(&T, &T) -> Ordering + Copy, C>,
-        SortError<C::SerializationError, C::DeserializationError, E>,
-    >
+    ) -> SortResult<BinaryHeapMerger<T, C::DeserializationError, impl Fn(&T, &T) -> Ordering + Copy, C>, T, E, C>
     where
         T: Ord,
         I: IntoIterator<Item = Result<T, E>>,
@@ -276,10 +275,7 @@ where
         &self,
         input: I,
         compare: F,
-    ) -> Result<
-        BinaryHeapMerger<T, C::DeserializationError, F, C>,
-        SortError<C::SerializationError, C::DeserializationError, E>,
-    >
+    ) -> SortResult<BinaryHeapMerger<T, C::DeserializationError, F, C>, T, E, C>
     where
         I: IntoIterator<Item = Result<T, E>>,
         F: Fn(&T, &T) -> Ordering + Sync + Send + Copy,
@@ -299,20 +295,16 @@ where
             }
         }
 
-        if chunk_buf.len() > 0 {
+        if !chunk_buf.is_empty() {
             external_chunks.push(self.create_chunk(chunk_buf, compare)?);
         }
 
         log::debug!("external sort preparation done");
 
-        return Ok(BinaryHeapMerger::new(external_chunks, compare));
+        Ok(BinaryHeapMerger::new(external_chunks, compare))
     }
 
-    fn create_chunk<F>(
-        &self,
-        mut buffer: impl ChunkBuffer<T>,
-        compare: F,
-    ) -> Result<C, SortError<C::SerializationError, C::DeserializationError, E>>
+    fn create_chunk<F>(&self, mut buffer: impl ChunkBuffer<T>, compare: F) -> Result<C, ChunkSortError<T, E, C>>
     where
         F: Fn(&T, &T) -> Ordering + Sync + Send,
     {
@@ -328,7 +320,7 @@ where
                 ExternalChunkError::SerializationError(err) => SortError::SerializationError(err),
             })?;
 
-        return Ok(external_chunk);
+        Ok(external_chunk)
     }
 }
 
@@ -351,7 +343,7 @@ mod test {
         let mut input_shuffled = Vec::from_iter(input_sorted.clone());
         input_shuffled.shuffle(&mut rand::thread_rng());
 
-        let input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(|item| Ok(item)));
+        let input: Vec<Result<i32, io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(Ok));
 
         let sorter: ExternalSorter<i32, _> = ExternalSorterBuilder::new()
             .with_buffer(LimitedBufferBuilder::new(8, true))
@@ -383,14 +375,20 @@ mod test {
     #[case(false)]
     #[case(true)]
     fn test_external_sorter_stability(#[case] reversed: bool) {
-        let input_sorted = (0..20).flat_map(|x|(0..5).map(move |y| (x, y)));
+        let input_sorted = (0..20).flat_map(|x| (0..5).map(move |y| (x, y)));
 
         let mut input_shuffled = Vec::from_iter(input_sorted.clone());
         input_shuffled.shuffle(&mut rand::thread_rng());
         // sort input by the second field to check sorting stability
-        input_shuffled.sort_by(|a: &(i32, i32), b: &(i32, i32)| if reversed {a.1.cmp(&b.1).reverse()} else {a.1.cmp(&b.1)});
+        input_shuffled.sort_by(|a: &(i32, i32), b: &(i32, i32)| {
+            if reversed {
+                a.1.cmp(&b.1).reverse()
+            } else {
+                a.1.cmp(&b.1)
+            }
+        });
 
-        let input: Vec<Result<(i32, i32), io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(|item| Ok(item)));
+        let input: Vec<Result<(i32, i32), io::Error>> = Vec::from_iter(input_shuffled.into_iter().map(Ok));
 
         let sorter: ExternalSorter<(i32, i32), _> = ExternalSorterBuilder::new()
             .with_buffer(LimitedBufferBuilder::new(8, true))

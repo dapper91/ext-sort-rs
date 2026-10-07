@@ -54,6 +54,8 @@ where
     }
 }
 
+type HeapItem<T, F> = (std::cmp::Reverse<OrderedWrapper<T, F>>, std::cmp::Reverse<usize>);
+
 /// Binary heap merger implementation.
 /// Merges multiple sorted inputs into a single sorted output.
 /// Time complexity is *m* \* log(*n*) in worst case where *m* is the number of items,
@@ -65,7 +67,7 @@ where
     C: IntoIterator<Item = Result<T, E>>,
 {
     // binary heap is max-heap by default so we reverse it to convert it to min-heap
-    items: BinaryHeap<(std::cmp::Reverse<OrderedWrapper<T, F>>, std::cmp::Reverse<usize>)>,
+    items: BinaryHeap<HeapItem<T, F>>,
     chunks: Vec<C::IntoIter>,
     initiated: bool,
     compare: F,
@@ -89,12 +91,12 @@ where
         let chunks = Vec::from_iter(chunks.into_iter().map(|c| c.into_iter()));
         let items = BinaryHeap::with_capacity(chunks.len());
 
-        return BinaryHeapMerger {
+        BinaryHeapMerger {
             chunks,
             items,
             compare,
             initiated: false,
-        };
+        }
     }
 }
 
@@ -112,9 +114,10 @@ where
             for (idx, chunk) in self.chunks.iter_mut().enumerate() {
                 if let Some(item) = chunk.next() {
                     match item {
-                        Ok(item) => self
-                            .items
-                            .push((std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)), std::cmp::Reverse(idx))),
+                        Ok(item) => self.items.push((
+                            std::cmp::Reverse(OrderedWrapper::wrap(item, self.compare)),
+                            std::cmp::Reverse(idx),
+                        )),
                         Err(err) => return Some(Err(err)),
                     }
                 }
@@ -132,7 +135,7 @@ where
             }
         }
 
-        return Some(Ok(result.0.unwrap()));
+        Some(Ok(result.0.unwrap()))
     }
 }
 
@@ -140,7 +143,7 @@ where
 mod test {
     use rstest::*;
     use std::error::Error;
-    use std::io::{self, ErrorKind};
+    use std::io;
 
     use super::BinaryHeapMerger;
 
@@ -167,21 +170,21 @@ mod test {
     )]
     #[case(
         vec![
-            vec![Result::Err(io::Error::new(ErrorKind::Other, "test error"))]
+            vec![Result::Err(io::Error::other("test error"))]
         ],
         vec![
-            Result::Err(io::Error::new(ErrorKind::Other, "test error"))
+            Result::Err(io::Error::other("test error"))
         ],
     )]
     #[case(
         vec![
-            vec![Ok(3), Result::Err(io::Error::new(ErrorKind::Other, "test error"))],
+            vec![Ok(3), Result::Err(io::Error::other("test error"))],
             vec![Ok(1), Ok(2)],
         ],
         vec![
             Ok(1),
             Ok(2),
-            Result::Err(io::Error::new(ErrorKind::Other, "test error")),
+            Result::Err(io::Error::other("test error")),
         ],
     )]
     fn test_merger(
@@ -189,7 +192,7 @@ mod test {
         #[case] expected_result: Vec<Result<i32, io::Error>>,
     ) {
         let merger = BinaryHeapMerger::new(chunks, i32::cmp);
-        let actual_result = merger.collect();
+        let actual_result: Vec<_> = merger.collect();
         assert!(
             compare_vectors_of_result::<_, io::Error>(&actual_result, &expected_result),
             "actual={:?}, expected={:?}",
@@ -199,18 +202,15 @@ mod test {
     }
 
     fn compare_vectors_of_result<T: PartialEq, E: Error + 'static>(
-        actual: &Vec<Result<T, E>>,
-        expected: &Vec<Result<T, E>>,
+        actual: &[Result<T, E>],
+        expected: &[Result<T, E>],
     ) -> bool {
-        actual
-            .into_iter()
-            .zip(expected)
-            .all(
-                |(actual_result, expected_result)| match (actual_result, expected_result) {
-                    (Ok(actual_result), Ok(expected_result)) if actual_result == expected_result => true,
-                    (Err(actual_err), Err(expected_err)) => actual_err.to_string() == expected_err.to_string(),
-                    _ => false,
-                },
-            )
+        actual.iter().zip(expected).all(
+            |(actual_result, expected_result)| match (actual_result, expected_result) {
+                (Ok(actual_result), Ok(expected_result)) if actual_result == expected_result => true,
+                (Err(actual_err), Err(expected_err)) => actual_err.to_string() == expected_err.to_string(),
+                _ => false,
+            },
+        )
     }
 }
